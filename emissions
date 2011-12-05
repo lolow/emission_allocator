@@ -146,7 +146,8 @@ class App
         end
       end
 
-      opts.on('-x','--extra-src FILE',String, "where each row contains space-separated values with header:","xq yq aq bq [#{EmissionAllocator::POLLS.join(" ")}]") do |file|
+      opts.on('-x','--extra-src FILE',String, "where each row contains space-separated values with header:",
+                 "xq yq aq bq [#{EmissionAllocator::POLLS.join(" ")}]") do |file|
         if File.exists?(file)
           @options.extra_src = file
         else
@@ -281,7 +282,8 @@ class App
       pprint summary if @options.verbose
 
       # Write series.dmna input file (and perform the space-time allocation)
-      summary = alloc.write_time_series(@options.series_dmna_src,File.join(@options.output_dir,@options.series_dmna),emissions,@options.compute_details)
+      filename = File.join(@options.output_dir,@options.series_dmna)
+      summary = alloc.write_time_series(@options.series_dmna_src,filename,emissions,@options.compute_details)
       puts "series.dmna" if @options.verbose
       pprint summary if @options.verbose
 
@@ -289,7 +291,9 @@ class App
       alloc.write_maps(@options.output_dir,@options.series_dmna) if @options.maps
 
       # Write annual emissions
-       alloc.write_annual_emissions(@options.output_dir,@options.write_emission_file, emissions) unless @options.write_emission_file==''
+      unless @options.write_emission_file==''
+        alloc.write_annual_emissions(@options.output_dir,@options.write_emission_file, emissions)
+      end
 
     end
 
@@ -393,7 +397,7 @@ class EmissionAllocator
       yshift = @src_map.params["yllcorner"]-map.params["yllcorner"].to_i
       xshift = @src_map.params["xllcorner"]-map.params["xllcorner"].to_i
       map.each_data do |row,col|
-        @src_map.cells[row+yshift][col+xshift] = BigDecimal.new('1') if map.cells[row][col] > 0
+        @src_map.cells[row+yshift][col+xshift] = "1".to_d if map.cells[row][col] > 0
       end
     end
 
@@ -442,8 +446,8 @@ class EmissionAllocator
       puts "WARNING: Calculation area is outside the DEM domain!"
       puts "Recommended values:"
       puts "dd #{dd}"
-      puts "ny #{(@dem.params["ncols"] * dcsize - @x0) /dd + 2}"
-      puts "nx #{(@dem.params["nrows"] * dcsize - @y0) /dd + 2}"
+      puts "ny #{(@dem.params["ncols"] * dcsize - @x0) / dd + 2}"
+      puts "nx #{(@dem.params["nrows"] * dcsize - @y0) / dd + 2}"
     end
   end
 
@@ -551,7 +555,9 @@ class EmissionAllocator
     end
 
     summary["max_line_size"] = '0'.to_d
-    @sectors.each{|s|@polls.each{|p|summary["#{s}-#{p}"]=0}} if compute_details
+    if compute_details
+      @sectors.each{|s|@polls.each{|p|summary["#{s}-#{p}"]=0}}
+    end
 
     #Write time serie
     ts.each do |serie|
