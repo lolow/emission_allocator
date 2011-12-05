@@ -43,8 +43,8 @@
 
 ## Authors
 
-Laurent Drouet: ldrouet at gmail.com
-Lara Aleluia Reis: lara.aleluia at tudor.lu
+*    Laurent Drouet: ldrouet at gmail.com
+*    Lara Aleluia Reis: lara.aleluia at tudor.lu
 
 ## Copyright
 
