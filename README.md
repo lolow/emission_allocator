@@ -7,7 +7,7 @@
 *   Austal2000 input files to be completed
 *   austal2000.txt source containing at list the following parameters
     *    gh : filename of the DEM (austal calculation domain)
-    *    pollutants (nox, voc, o3)
+    *    pollutants (nox, voc, no, no2, so2, co, pm-1, pm-2, o3)
 *   series.dmna source
     *   the header must contain (hghb : number of time interval)
     *   the body must contain the list of time steps
@@ -18,30 +18,28 @@
 
 ## Usage:
 
-<code>
-Usage: emissions.rb conf.yml [options]
 
-Specific options:
-    -v, --[no-]verbose               Run verbosely
-    -m, --[no-]maps                  generate emission maps
-    -e, --emission TYPE              (annual [default],episode)
-    -f, --[no-]details               compute sectoral emission of the episode
-    -a, --austal-src FILE            Default: austal2000.txt.src
-    -d, --dmna-src FILE              Default: series.dmna.src
-        --austal-out FILE            Default: austal2000.txt
-    -y, --dmna-out FILE              Default: series.dmna
-    -w, --write-emi FILE             Default: 
-    -i, --input DIR                  Default: conf.yml path
-    -o, --output DIR                 Default: current dir
-    -x, --extra-src FILE             where each row contains space-separated values with header:
-                                     xq yq aq bq [nox voc no no2 so2 co pm-1 pm-2 o3]
-    -s, --sector x,y,z               Specify a list of sectors
-                                       example: tra,prd,ind
+    Usage: emissions.rb conf.yml [options]
 
-Common options:
-        --version                    Show version
-    -h, --help                       Show this message
-</code>
+    Specific options:
+        -v, --[no-]verbose               Run verbosely
+        -m, --[no-]maps                  generate emission maps
+        -e, --emission TYPE              (annual [default],episode)
+        -f, --[no-]details               compute sectoral emission of the episode
+        -a, --austal-src FILE            Default: austal2000.txt.src
+        -d, --dmna-src FILE              Default: series.dmna.src
+        --austal-out FILE                Default: austal2000.txt
+        -y, --dmna-out FILE              Default: series.dmna
+        -w, --write-emi FILE             Default:
+        -i, --input DIR                  Default: conf.yml path
+        -o, --output DIR                 Default: current dir
+        -x, --extra-src FILE             where each row contains space-separated values with header:
+                                             xq yq aq bq [nox voc no no2 so2 co pm-1 pm-2 o3]
+        -s, --sector x,y,z               Specify a list of sectors
+                                             example: tra,prd,ind
+    Common options:
+        --version                        Show version
+        -h, --help                       Show this message
 
 ## Authors
 
