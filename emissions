@@ -1,0 +1,723 @@
+#!/usr/bin/env ruby
+# == Synopsis
+#   Allocates emissions [in ton] at emission sources in AUSTAL2000 input format,
+#   according to a YAML configuration file.
+#
+# == Authors
+#   Lara Aleluia Reis, Laurent Drouet
+#
+# == Copyright
+#   Copyright (c) 2010-2011 CRP Henri Tudor
+
+require 'bigdecimal'
+require 'bigdecimal/util'
+require 'optparse'
+require 'rdoc/rdoc'
+require 'benchmark'
+require 'ostruct'
+require 'time'
+require 'date'
+require 'yaml'
+require 'pp'
+load "#{File.join(File.dirname(__FILE__),'asc_map.rb')}"
+
+# Runtime Application, read the command line parameters and process the emission.
+class App
+  VERSION = '1.3'
+
+  attr_reader :options
+
+  def initialize(arguments)
+    @arguments = arguments
+
+    # Default option
+    @options = OpenStruct.new
+    @options.verbose             = false
+    @options.maps                = false
+    @options.compute_details     = false
+    @options.emissions           = 'annual'
+    @options.write_emission_file = ''
+    @options.austal_txt_src      = 'austal2000.txt.src'
+    @options.austal_txt          = 'austal2000.txt'
+    @options.series_dmna_src     = 'series.dmna.src'
+    @options.series_dmna         = 'series.dmna'
+    @options.extra_src           = nil
+    @options.input_dir           = ''
+    @options.output_dir          = '.'
+    @options.sector              = []
+  end
+
+  # Parse options, check arguments, then process the command
+  def run
+
+    opts = OptionParser.new do |opts|
+
+      opts.banner = "Usage: emissions.rb conf.yml [options]"
+
+      opts.separator ""
+      opts.separator "Specific options:"
+
+      opts.on("-v", "--[no-]verbose", "Run verbosely") do |v|
+        @options.verbose = v
+      end
+
+      opts.on("-m", "--[no-]maps", "generate emission maps") do |v|
+        @options.maps = v
+      end
+
+      opts.on('-e', '--emission TYPE', String, "(annual [default],episode)")  do |type|
+        if ['annual','episode'].include? type
+          @options.emissions = type
+        else
+          puts "emission type should be 'annual' or 'episode'"
+          exit
+        end
+      end
+
+      opts.on('-f', '--[no-]details', "compute sectoral emission of the episode")  do |v|
+        @options.compute_details = v
+      end
+
+      opts.on('-a', '--austal-src FILE', String, "Default: #{@options.austal_txt_src}")  do |file|
+        if File.exists?(file)
+          @options.austal_txt_src = file
+        else
+          puts "File #{file} does not exist"
+          exit
+        end
+      end
+
+      opts.on('-d', '--dmna-src FILE', String, "Default: #{@options.series_dmna_src}")  do |file|
+        if File.exists?(file)
+          @options.series_dmna_src = file
+        else
+          puts "File #{file} does not exist"
+          exit
+        end
+      end
+
+      opts.on('-x', '--austal-out FILE', String, "Default: #{@options.austal_txt}")  do |file|
+        @options.austal_txt = file
+      end
+
+      opts.on('-y', '--dmna-out FILE', String, "Default: #{@options.series_dmna}")  do |file|
+        @options.series_dmna = file
+      end
+
+      opts.on('-w', '--write-emi FILE', String, "Default: #{@options.write_emission_file}")  do |file|
+        @options.write_emission_file = file
+      end
+
+      opts.on('-i', '--input DIR', String, "Default: conf.yml path")  do |dir|
+        if File.directory?(dir)
+          @options.input_dir = dir
+        else
+          puts "Directory #{dir} does not exist"
+          exit
+        end
+      end
+
+      opts.on('-o', '--output DIR', String, "Default: current dir")  do |dir|
+        if File.directory?(dir)
+          @options.output_dir = dir
+        else
+          puts "Directory #{dir} does not exist"
+          exit
+        end
+      end
+
+      opts.on('-x','--extra-src FILE',String, "where each row contains space-separated values with header:","xq yq aq bq [#{EmissionAllocator::POLLS.join(" ")}]") do |file|
+        if File.exists?(file)
+          @options.extra_src = file
+        else
+          puts "File #{file} does not exist"
+        end
+      end
+
+      opts.on('-s',"--sector x,y,z", Array, "Specify a list of sectors", "  example: tra,prd,ind") do |list|
+        @options.sector = list
+      end
+
+      opts.separator ""
+      opts.separator "Common options:"
+
+      opts.on_tail("--version", "Show version") do
+        puts "#{File.basename(__FILE__)} version #{VERSION}"
+        exit
+      end
+
+      opts.on_tail("-h", "--help", "Show this message") do
+        puts opts
+        exit
+      end
+
+    end
+
+    opts.parse!(@arguments)
+
+    #check the presence of the conf file
+    if @arguments.size==0
+      puts opts
+      exit
+    end
+
+    # get conf file
+    @options.conf = @arguments.first
+
+    if @options.verbose
+      puts "Options:\n"
+      @options.marshal_dump.each {|name, val| puts "  #{name} = #{val}"}
+    end
+
+    b = Benchmark.measure { process_command }
+
+    puts (Benchmark::CAPTION + b.to_s) if @options.verbose
+
+  end
+
+  protected
+
+     def pprint hash
+       hash.each do |key,value|
+         puts "#{key}: #{value.round(15).to_s('F')}"
+       end
+     end
+
+     def process_command
+
+      unless File.exists? @options.conf
+        puts "Configuration file does not exist!"
+        exit
+      end
+
+      conf = {}
+
+      # Load configuration file
+      begin
+        conf = YAML.load_file(@options.conf)
+      rescue
+        "Configuration file #{@options.conf} cannot be loaded"
+      end
+
+      # define input_dir if necessary
+      if @options.input_dir == ''
+        @options.input_dir = File.dirname(@options.conf)
+      end
+
+      if @options.emissions=='annual' &&  conf.keys.include?('annual_emissions')
+        emissions = conf["annual_emissions"]
+      elsif @options.emissions=='episode' &&  conf.keys.include?('episode_emissions')
+        emissions = conf["episode_emissions"]
+      elsif conf.keys.include? 'sectoral_emissions' #old version compatibility
+        emissions = conf["sectoral_emissions"]
+      else
+        puts "Error: can not read emissions in conf file (needs annual_emissions, episode_emissions or sectoral_emissions)"
+      end
+
+      # Sectors
+      @options.sector = emissions.keys unless @options.sector.size > 0
+      puts "Sectors: " + @options.sector.join(", ") if @options.verbose
+
+      # Initialize the emission allocator using austal.txt
+      alloc = EmissionAllocator.new(@options.austal_txt_src)
+
+      # Define the emission sources
+      s_maps = @options.sector.collect{|s|File.join(@options.input_dir,conf["sectoral_maps"][s])}
+      nbsrc = alloc.define_sources(s_maps)
+      puts "Number of emission sources: #{nbsrc}" if @options.verbose
+
+      # Check the size of the calculation domain
+      alloc.check_domain
+
+      # Add the description of spatial and time description by sector
+      @options.sector.each do |s|
+        map = File.join(@options.input_dir,conf["sectoral_maps"][s])
+        time = File.join(@options.input_dir,conf["time_allocation"][s])
+        alloc.add_sector(s,map,time)
+      end
+
+      # Display info on the share of the episode annually
+      if @options.emissions=='episode'
+        share = alloc.episode_sector_annual_share(@options.series_dmna_src)
+        @options.sector.each_with_index do |s,i|
+          emissions[s].each do |poll,value|
+            if share[i]==0
+              emissions[s][poll] = '0'.to_d
+            else
+              emissions[s][poll] = value.to_s.to_d / share[i]
+            end
+          end
+
+        end
+      end
+
+      # Add extra sources
+      nbsrc = alloc.add_extra_src(@options.extra_src) if @options.extra_src
+      puts "Number of emission sources: #{nbsrc}" if @options.verbose && @options.extra_src
+
+      # Write austal.txt input file
+      summary = alloc.write_austal_txt(File.join(@options.output_dir,@options.austal_txt))
+      puts "austal.txt" if @options.verbose
+      pprint summary if @options.verbose
+
+      # Write series.dmna input file (and perform the space-time allocation)
+      summary = alloc.write_time_series(@options.series_dmna_src,File.join(@options.output_dir,@options.series_dmna),emissions,@options.compute_details)
+      puts "series.dmna" if @options.verbose
+      pprint summary if @options.verbose
+
+      # Create maps (should be called only at the very end)
+      alloc.write_maps(@options.output_dir,@options.series_dmna) if @options.maps
+
+      # Write annual emissions
+       alloc.write_annual_emissions(@options.output_dir,@options.write_emission_file, emissions) unless @options.write_emission_file==''
+
+    end
+
+end
+
+# Collect information and perform space-time allocation of emission for austal2000
+class EmissionAllocator
+
+  # POLLS contains pollutants which are recognized by austal2000
+  POLLS = %w{nox voc no no2 so2 co pm-1 pm-2 o3}
+
+  # Initialize Emission Allocator
+  #
+  # @param austal_txt [String] contains the austal2000.src template file location
+  # where default parameters will be read. This file should contain at least the gh parameter and the pollutants.
+  # A good template file should work with austal2000 without changes.
+  # @return [EmissionAllocator]
+  def initialize(austal_txt)
+
+    @austal_txt = austal_txt
+
+    #Find DEM file
+    raise "no DEM defined in #{@austal_txt}!" unless austal_param("gh")
+    dem_file = check_file [austal_param("gh"),File.join(File.dirname(@austal_txt),austal_param("gh"))]
+    raise "Unable to find #{austal_param("gh")}!" unless dem_file
+    @dem = AscMap.new(dem_file)
+
+    #Initialize default structures
+    @xq = []       # source lower left x-coordinates
+    @yq = []       # source lower left y-coordinates
+    @aq = []       # source width
+    @bq = []       # source length
+    @x0 = austal_param("x0").to_i       # austal lower left x-coordinates
+    @y0 = austal_param("y0").to_i       # austal lower left y-coordinates
+    @hq = (austal_param("hq")||10).to_i # default height
+    @nb_src = 0    # number of total sources
+    @nb_extra_src  = 0  # number of extra sources (not from the map)
+    @extra_src_emi = [] # Array of hash containing emissions for extra_src
+
+    @sectors = []  # sector names
+    @sec_map = []  # sector spatial distributions (g/grid-cell)
+    @sec_prf = []  # sector time profiles         (shares)
+
+    @polls   = scan_austal_src(POLLS)
+
+  end
+
+  # Find and check the pollutants from the austal2000 template file
+  #
+  # @param pollutants [Array] All possible pollutants
+  # @return [Array] Pollutants to allocate
+  def scan_austal_src(pollutants)
+    File.readlines(@austal_txt).collect{|l|l.scan /^\S+/}.flatten & pollutants
+  end
+
+  # Check existence of files
+  #
+  # @param filenames [Array]
+  # @return [String] Filename of the first existing or +nil+ if none exists
+  def check_file(filenames)
+    filenames.select{ |f| File.exists?(f) }.first
+  end
+
+  #Read a map and define an emission source where there is a value
+  def define_sources(s_maps)
+
+    #Read info from maps
+    x0 = []
+    y0 = []
+    ncols = []
+    nrows = []
+    cellsize = []
+    s_maps.each do |m|
+      map = AscMap.new(m)
+      x0       << map.params["xllcorner"].to_i
+      y0       << map.params["yllcorner"].to_i
+      ncols    << map.params["ncols"].to_i
+      nrows    << map.params["nrows"].to_i
+      cellsize << map.params["cellsize"].to_i
+    end
+
+    #Check cellsize
+    cellsize.uniq!
+    raise "cellsize of the sectoral allocation maps should be identical!" unless cellsize.size==1
+    cellsize = cellsize.first
+
+    #Set the sources map parameters
+    @src_map = AscMap.new(s_maps.first)
+    @src_map.params["xllcorner"] = x0.min
+    @src_map.params["yllcorner"] = y0.min
+    x1=[];x0.each_with_index{|xllcorner,i| x1 << (xllcorner + ncols[i] * cellsize) }
+    y1=[];y0.each_with_index{|yllcorner,i| y1 << (yllcorner + nrows[i] * cellsize) }
+    @src_map.params["ncols"] =  (x1.max - x0.min) / cellsize
+    @src_map.params["nrows"] =  (y1.max - y0.min) / cellsize
+    @src_map.params["NODATA_value"] = -1
+    @src_map.reset!
+
+    #Design the sources map
+    s_maps.each do |m|
+      map = AscMap.new(m)
+      yshift = @src_map.params["yllcorner"]-map.params["yllcorner"].to_i
+      xshift = @src_map.params["xllcorner"]-map.params["xllcorner"].to_i
+      map.each_data do |row,col|
+        @src_map.cells[row+yshift][col+xshift] = BigDecimal.new('1') if map.cells[row][col] > 0
+      end
+    end
+
+    @src_map.write_asc(File.join(File.dirname(@austal_txt),'src_map.asc'))
+
+    #Store the emissions sources
+    @src_map.each_data do |row,col|
+      x = @src_map.coord_x(col)
+      y = @src_map.coord_y(row)
+      @xq << x - @dem.params["xllcorner"].to_i
+      @yq << y - @dem.params["yllcorner"].to_i
+      @aq << cellsize
+      @bq << cellsize
+    end
+    @nb_src = @xq.size
+  end
+
+  #Add sector information ordered in the structures
+  def add_sector(name,map,profile,total=1e+6)
+    @sectors << name
+    sec = AscMap.new(map)
+    sec.normalize!(total)
+    yshift = @src_map.params["yllcorner"]-sec.params["yllcorner"].to_i
+    xshift = @src_map.params["xllcorner"]-sec.params["xllcorner"].to_i
+    @src_map.each_data do |row,col|
+      if row-yshift<0 || col-xshift<0 ||
+         row-yshift>sec.params["nrows"] ||
+         col-xshift>sec.params["ncols"] ||
+         sec.cells[row-yshift][col-xshift]==sec.params["NODATA_value"]
+        @sec_map << '0'.to_d
+      else
+        @sec_map << sec.cells[row-yshift][col-xshift]
+      end
+    end
+    @sec_prf << YAML.load_file(profile)
+  end
+
+  #Check the compatibility of th dem bounds with the source map
+  def check_domain
+    dcsize = @dem.params["cellsize"].to_i
+    dd = austal_param("dd").to_i
+    nx = austal_param("nx").to_i
+    ny = austal_param("ny").to_i
+    if ((@dem.params["ncols"] * dcsize) < (nx * dd + @x0)) ||
+       ((@dem.params["nrows"] * dcsize) < (ny * dd + @y0))
+      puts "WARNING: Calculation area is outside the DEM domain!"
+      puts "Recommended values:"
+      puts "dd #{dd}"
+      puts "ny #{(@dem.params["ncols"] * dcsize - @x0) /dd + 2}"
+      puts "nx #{(@dem.params["nrows"] * dcsize - @y0) /dd + 2}"
+    end
+  end
+
+  #Add extra source from a tabular file
+  def add_extra_src(file)
+    lines = File.readlines(file)
+    headers = lines.shift.split
+    lines.each do |line|
+      row = line.split
+      emi = {}
+      headers.each_with_index do |h,i|
+        case h
+        when "xq"
+          @xq << row[i]
+        when "yq"
+          @yq << row[i]
+        when "aq"
+          @aq << row[i]
+        when "bq"
+          @bq << row[i]
+        else
+          emi[h] = row[i]
+        end
+      end
+      @nb_src += 1
+      @nb_extra_src += 1
+      @extra_src_emi << emi
+    end
+    @nb_src
+  end
+
+  # write austal2000.txt input
+  def write_austal_txt(output)
+    summary = {}
+    summary["max_line_size"] = '0'.to_d
+    f = File.new(output,"w")
+    File.foreach(@austal_txt) do |line|
+      case line.split(" ").first
+      when "xq"
+        newline = "xq #{@xq.join(" ")}"
+      when "yq"
+        newline = "yq #{@yq.join(" ")}"
+      when "aq"
+        newline = "aq #{@aq.join(" ")}"
+      when "bq"
+        newline = "bq #{@bq.join(" ")}"
+      when "x0"
+        newline = "x0 #{@x0}"
+      when "y0"
+        newline = "y0 #{@y0}"
+      when "nox"
+        newline = "nox" + " ?" * @nb_src
+      when "voc"
+        newline = "voc" + " ?" * @nb_src
+      when "o3"
+        newline = "o3" + " ?" * @nb_src
+      when "hq"
+        newline= "hq" + " #{@hq}" * @nb_src
+      else
+        newline = line
+      end
+      summary["max_line_size"] = newline.size.to_s.to_d if newline.size > summary["max_line_size"]
+      f.puts(newline)
+    end
+    f.close
+    summary
+  end
+
+  # write series.dmna input
+  def write_time_series(template_series,output_series,annual_emissions,compute_details)
+    summary = {}
+
+    # sort annual emissions
+    emissions = []
+    @sectors.each do |sec|
+      @polls.each do |p|
+        emissions << (annual_emissions[sec][p] ? annual_emissions[sec][p].to_s.to_d : '0'.to_d)
+      end
+    end
+
+    # read first series.dmna
+    ts, interval_duration = time_series(template_series)
+
+    # Read/write time serie file
+    header = true
+    fs = File.new(output_series, "w")
+
+    #Write header
+    File.foreach(template_series) do |line|
+      if header
+        newline = line
+        case line.split.first
+        when "form"
+          newline = 'form   "te%20lt" "ra%5.0f" "ua%5.1f" "lm%7.1f"'
+          @polls.each do |p|
+            (1..@nb_src).each do |i|
+              newline << " " + '"%02d.' % i + p + '%10.3e"'
+            end
+          end
+        when "*"
+          header = false
+        end
+        fs.puts(newline)
+      end
+    end
+
+    summary["max_line_size"] = '0'.to_d
+    @sectors.each{|s|@polls.each{|p|summary["#{s}-#{p}"]=0}} if compute_details
+
+    #Write time serie
+    ts.each do |serie|
+      time_stamp = serie.first
+      t = parse_time_stamp(time_stamp)
+
+      #Collect the sectoral emission fractions for an time interval starting at time t
+      time_frac = sectoral_time_frac(t,interval_duration)
+
+      newline = "#{time_stamp}\t%5.0f\t%5.1f\t%7.1f" % [serie[1],serie[2],serie[3]]
+
+      #Compute pollutants strengths
+      o3_i = @polls.index("o3")
+      @polls.each_index do |p_i|
+        milestone = @nb_src-@nb_extra_src
+        (0...milestone).each do |i|
+
+          strength = '0'.to_d
+          @sectors.each_index do |sec_i|
+            time  = time_frac[sec_i]
+            space = @sec_map[i+sec_i*milestone]
+            additional = time * space * emissions[p_i+sec_i*@polls.size] / '3600'.to_d
+            summary["#{@sectors[sec_i]}-#{@polls[p_i]}"] += (additional * interval_duration) if compute_details
+            strength += additional
+          end
+
+          newline << " %.5e" % strength
+
+          if strength < 0
+            puts "Negative strength = #{strength}"
+            @sectors.each_index do |sec_i|
+              puts "sec #{@sectors[sec_i]}"
+              puts "time frac= #{time_frac[sec_i]}"
+              puts "space frac= #{@sec_map[i+sec_i*milestone]}"
+              puts "emis=#{emissions[p_i+sec_i*@polls.size]}"
+            end
+            exit 255
+          end
+
+        end
+        (milestone...@nb_src).each do |i|
+          puts  @extra_src_emi[i-milestone][@polls[p_i]]
+          newline << " %s" % @extra_src_emi[i-milestone][@polls[p_i]]
+        end
+      end
+
+      summary["max_line_size"] = newline.size.to_s.to_d if newline.size > summary["max_line_size"]
+      fs.puts(newline)
+    end
+    fs.close
+    summary
+  end
+
+  # write emission maps from the generated series.dmna
+  def write_maps(output_dir,output_series)
+
+    filenames = []
+    total_episode = Hash.new(0)
+
+    # read series.dmna
+    header = true
+    File.foreach(File.join(output_dir,output_series)) do |line|
+      line = line.split
+      unless header || line.size < 4
+        i = 4
+        @polls.each do |gas|
+          @src_map.each_data do |row,col|
+            @src_map.cells[row][col] = line[i].to_d
+            i+=1
+          end
+          name = File.join(output_dir,"#{gas}-#{line.first.tr(":","")}.asc")
+          filenames << name
+          @src_map.write_asc(name)
+          sum = @src_map.sum_values
+          puts "#{line.first.tr(":","")}: #{gas} : #{sum.to_s('F')}"
+          total_episode[gas] = total_episode[gas] + sum
+        end
+      end
+      header = false if line.first=="*"
+    end
+
+    total_episode.each do |gas,value|
+      puts "Total episode: #{gas} : #{value.to_s('F')}"
+    end
+
+  end
+
+  # return the share of annual emission of the episode sector per sector
+  def episode_sector_annual_share(template_series)
+    ts, interval_duration = time_series(template_series)
+    share = Array.new(@sectors.size,0)
+    ts.each do |serie|
+      time_stamp = serie.first
+      t = parse_time_stamp(time_stamp)
+      time_frac = sectoral_time_frac(t,interval_duration)
+      share.each_index do |i|
+        share[i] = share[i] + time_frac[i]
+      end
+    end
+    share
+  end
+
+  def write_annual_emissions(dir,file,annual_emissions)
+    open(File.join(dir,file),'w') do |f|
+      @sectors.each_index do |sec_i|
+        @polls.each_index do |p_i|
+          value = annual_emissions[@sectors[sec_i]][@polls[p_i]]
+          value = value ? value.to_s.to_d.round(6).to_s('F') : 0
+          f.puts("#{@sectors[sec_i]} #{@polls[p_i]} #{value}")
+        end
+      end
+    end
+  end
+
+  private
+
+  def parse_time_stamp(ts)
+    if ts.index(".24") # fix bug "24:00:00"
+      Time.parse(ts.gsub(/\.24/,'.23')) + 3600
+    else
+      Time.parse(ts)
+    end
+
+  end
+
+  # Returns the value of a parameter from austal2000.txt
+  def austal_param(key)
+    value = nil
+    File.foreach(@austal_txt) do |line|
+      array = line.split(" ")
+      value = array.last.tr('"','') if array.first==key
+      break if value
+    end
+    value
+  end
+
+  # Returns the season given the day
+  def season(yday)
+    case yday
+    when 80..171
+      :midseason
+    when 172..265
+      :summer
+    when 266..355
+      :midseason
+    else
+      :winter
+    end
+  end
+
+  # Returns the numbers of weeks in a month
+  def weeks_in_month(year, month)
+    days_in_month = (Date.new(year, 12, 31) << (12-month)).day # http://snippets.dzone.com/posts/show/4397
+    days_in_month.to_s.to_d / '7'.to_d
+  end
+
+  # Returns the time serie from the series.dmna.src
+  def time_series(template_series)
+    ts = []
+    header = true
+    File.foreach(template_series) do |line|
+     line = line.split
+      ts << line[0..4] unless header || line.size < 4
+      header = false if line.first=="*"
+    end
+    t0 = parse_time_stamp(ts[0].first)
+    t1 = parse_time_stamp(ts[1].first)
+    [ts, (t1 - t0).to_s.to_d]
+  end
+
+  #return an array containing the time fraction for each sector
+  def sectoral_time_frac(t,interval_duration)
+    @sec_prf.collect do |prf|
+        h_season = prf[:hourly].keys.include?(:annual) ? :annual : season(t.yday)
+        d_season = prf[:daily].keys.include?(:annual)  ? :annual : season(t.yday)
+        monthly_fraction   = prf[:monthly][t.month-1].to_s.to_d
+        weeks_in_month     = weeks_in_month(t.year, t.month)
+        daily_fraction     = prf[:daily][d_season][t.wday].to_s.to_d / weeks_in_month
+        hourly_fraction    = prf[:hourly][h_season][t.hour-1].to_s.to_d
+        duration           = interval_duration / '3600'.to_d
+        hourly_fraction * daily_fraction * monthly_fraction * duration
+      end
+  end
+
+end
+
+# Create and run the application
+app = App.new(ARGV)
+app.run

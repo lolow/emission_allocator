@@ -41,3 +41,13 @@ Specific options:
 Common options:
         --version                    Show version
     -h, --help                       Show this message
+
+
+AUTHORS
+Laurent Drouet: ldrouet@gmail.com
+Lara Aleluia Reis: lara.aleluia@tudor.lu
+
+COPYRIGHT
+The code is licensed to the MIT License (MIT). See the LICENSE file for the full license. 
+Copyright (c) 2011 Public Research Center Henri Tudor
+
