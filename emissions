@@ -26,7 +26,7 @@
 #   according to a YAML configuration file.
 #
 # == Authors
-#   Laurent Drouet [ldrouet at gmail.com], Lara Aleluia Reis [lara.aleluia at tudor.com]
+#   Lara Aleluia Reis [lara.aleluia at tudor.com], Laurent Drouet [ldrouet at gmail.com] 
 #++
 
 require 'bigdecimal'
@@ -69,7 +69,6 @@ class App
 
   # Parse options, check arguments, then process the command
   def run
-
     opts = OptionParser.new do |opts|
 
       opts.banner = "Usage: emissions.rb conf.yml [options]"
@@ -312,7 +311,6 @@ class EmissionAllocator
   # A good template file should work with austal2000 without changes.
   # @return [EmissionAllocator]
   def initialize(austal_txt)
-
     @austal_txt = austal_txt
 
     #Find DEM file
@@ -359,7 +357,6 @@ class EmissionAllocator
 
   #Read a map and define an emission source where there is a value
   def define_sources(s_maps)
-
     #Read info from maps
     x0 = []
     y0 = []
@@ -613,7 +610,6 @@ class EmissionAllocator
 
   # write emission maps from the generated series.dmna
   def write_maps(output_dir,output_series)
-
     filenames = []
     total_episode = Hash.new(0)
 

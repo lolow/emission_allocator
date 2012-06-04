@@ -2,7 +2,6 @@
 
 ## Requirements:
 
-*   Red
 *   Ruby environment (works with ruby 1.8.7, ruby 1.9.2, jruby 1.5.6)
 *   Austal2000 input files to be completed
 *   austal2000.txt source containing at list the following parameters

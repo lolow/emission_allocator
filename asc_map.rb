@@ -6,7 +6,6 @@ class AscMap
   attr_accessor :params, :cells
 
   def initialize(filename=nil)
-    
     @params = {}
     @cells = []
 
@@ -29,7 +28,6 @@ class AscMap
         @params[p] = "31#{@params[p]}"
       end
     end
-
   end
 
   def each_data
@@ -98,7 +96,7 @@ class AscMap
   end
 
   def sum_values
-   data_values.inject( nil ) { |sum,x| sum ? sum + x : x }
+    data_values.inject( nil ) { |sum,x| sum ? sum + x : x }
   end
 
   def multiply!(mul)
