@@ -243,7 +243,7 @@ class App
 
       # Define the emission sources
       s_maps = @options.sector.collect{|s|File.join(@options.input_dir,conf["sectoral_maps"][s])}
-      nbsrc = alloc.define_sources(s_maps)
+      nbsrc = alloc.define_sources(s_maps,@options.verbose)
       puts "Number of emission sources: #{nbsrc}" if @options.verbose
 
       # Check the size of the calculation domain
@@ -356,7 +356,10 @@ class EmissionAllocator
   end
 
   #Read a map and define an emission source where there is a value
-  def define_sources(s_maps)
+  def define_sources(s_maps,verbose)
+
+    s_maps.uniq!
+
     #Read info from maps
     x0 = []
     y0 = []
@@ -391,8 +394,9 @@ class EmissionAllocator
     #Design the sources map
     s_maps.each do |m|
       map = AscMap.new(m)
-      yshift = @src_map.params["yllcorner"]-map.params["yllcorner"].to_i
-      xshift = @src_map.params["xllcorner"]-map.params["xllcorner"].to_i
+      yshift = (map.params["yllcorner"].to_i-@src_map.params["yllcorner"].to_i) / cellsize
+      xshift = (map.params["xllcorner"].to_i-@src_map.params["xllcorner"].to_i) / cellsize
+      puts "read #{m} - yshift #{yshift} - xshift #{xshift}" if verbose
       map.each_data do |row,col|
         @src_map.cells[row+yshift][col+xshift] = "1".to_d if map.cells[row][col] > 0
       end
