@@ -29,8 +29,6 @@
 #   Lara Aleluia Reis [lara.aleluia at tudor.com], Laurent Drouet [ldrouet at gmail.com] 
 #++
 
-require 'bigdecimal'
-require 'bigdecimal/util'
 require 'optparse'
 require 'rdoc/rdoc'
 require 'benchmark'
@@ -199,7 +197,7 @@ class App
 
      def pprint hash
        hash.each do |key,value|
-         puts "#{key}: #{value.round(15).to_s('F')}"
+         puts "#{key}: #{value}"
        end
      end
 
@@ -262,9 +260,9 @@ class App
         @options.sector.each_with_index do |s,i|
           emissions[s].each do |poll,value|
             if share[i]==0
-              emissions[s][poll] = '0'.to_d
+              emissions[s][poll] = 0
             else
-              emissions[s][poll] = value.to_s.to_d / share[i]
+              emissions[s][poll] = value.to_f / share[i]
             end
           end
 
@@ -398,7 +396,7 @@ class EmissionAllocator
       xshift = (map.params["xllcorner"].to_i-@src_map.params["xllcorner"].to_i) / cellsize
       puts "add #{m} to source map - yshift #{yshift} - xshift #{xshift}" if verbose
       map.each_data do |row,col|
-        @src_map.cells[row+yshift][col+xshift] = "1".to_d if map.cells[row][col] > 0
+        @src_map.cells[row+yshift][col+xshift] = 1 if map.cells[row][col] > 0
       end
     end
 
@@ -429,7 +427,7 @@ class EmissionAllocator
          row-yshift>=sec.params["nrows"] ||
          col-xshift>=sec.params["ncols"] ||
          sec.cells[row-yshift][col-xshift]==sec.params["NODATA_value"]
-        @sec_map << '0'.to_d
+        @sec_map << 0
       else
         @sec_map << sec.cells[row-yshift][col-xshift]
       end
@@ -484,7 +482,7 @@ class EmissionAllocator
   # write austal2000.txt input
   def write_austal_txt(output)
     summary = {}
-    summary["max_line_size"] = '0'.to_d
+    summary["max_line_size"] = 0
     f = File.new(output,"w")
     File.foreach(@austal_txt) do |line|
       case line.split(" ").first
@@ -511,7 +509,7 @@ class EmissionAllocator
       else
         newline = line
       end
-      summary["max_line_size"] = newline.size.to_s.to_d if newline.size > summary["max_line_size"]
+      summary["max_line_size"] = newline.size if newline.size > summary["max_line_size"]
       f.puts(newline)
     end
     f.close
@@ -526,7 +524,7 @@ class EmissionAllocator
     emissions = []
     @sectors.each do |sec|
       @polls.each do |p|
-        emissions << (annual_emissions[sec][p] ? annual_emissions[sec][p].to_s.to_d : '0'.to_d)
+        emissions << (annual_emissions[sec][p] ? annual_emissions[sec][p].to_f : 0)
       end
     end
 
@@ -556,7 +554,7 @@ class EmissionAllocator
       end
     end
 
-    summary["max_line_size"] = '0'.to_d
+    summary["max_line_size"] = 0
     if compute_details
       @sectors.each{|s|@polls.each{|p|summary["#{s}-#{p}"]=0}}
     end
@@ -577,11 +575,11 @@ class EmissionAllocator
         milestone = @nb_src-@nb_extra_src
         (0...milestone).each do |i|
 
-          strength = '0'.to_d
+          strength = 0.0
           @sectors.each_index do |sec_i|
             time  = time_frac[sec_i]
             space = @sec_map[i+sec_i*milestone]
-            additional = time * space * emissions[p_i+sec_i*@polls.size] / '3600'.to_d
+            additional = time * space * emissions[p_i+sec_i*@polls.size] / 3600.0
             summary["#{@sectors[sec_i]}-#{@polls[p_i]}"] += (additional * interval_duration) if compute_details
             strength += additional
           end
@@ -606,7 +604,7 @@ class EmissionAllocator
         end
       end
 
-      summary["max_line_size"] = newline.size.to_s.to_d if newline.size > summary["max_line_size"]
+      summary["max_line_size"] = newline.size if newline.size > summary["max_line_size"]
       fs.puts(newline)
     end
     fs.close
@@ -626,14 +624,14 @@ class EmissionAllocator
         i = 4
         @polls.each do |gas|
           @src_map.each_data do |row,col|
-            @src_map.cells[row][col] = line[i].to_d
+            @src_map.cells[row][col] = line[i].to_f
             i+=1
           end
           name = File.join(output_dir,"#{gas}-#{line.first.tr(":","")}.asc")
           filenames << name
           @src_map.write_asc(name)
           sum = @src_map.sum_values
-          puts "#{line.first.tr(":","")}: #{gas} : #{sum.to_s('F')}"
+          puts "#{line.first.tr(":","")}: #{gas} : #{sum}"
           total_episode[gas] = total_episode[gas] + sum
         end
       end
@@ -641,7 +639,7 @@ class EmissionAllocator
     end
 
     total_episode.each do |gas,value|
-      puts "Total episode: #{gas} : #{value.to_s('F')}"
+      puts "Total episode: #{gas} : #{value}"
     end
 
   end
@@ -666,7 +664,7 @@ class EmissionAllocator
       @sectors.each_index do |sec_i|
         @polls.each_index do |p_i|
           value = annual_emissions[@sectors[sec_i]][@polls[p_i]]
-          value = value ? value.to_s.to_d.round(6).to_s('F') : 0
+          value = value ? value.to_s : 0
           f.puts("#{@sectors[sec_i]} #{@polls[p_i]} #{value}")
         end
       end
@@ -712,7 +710,7 @@ class EmissionAllocator
   # Returns the numbers of weeks in a month
   def weeks_in_month(year, month)
     days_in_month = (Date.new(year, 12, 31) << (12-month)).day # http://snippets.dzone.com/posts/show/4397
-    days_in_month.to_s.to_d / '7'.to_d
+    days_in_month.to_f / 7
   end
 
   # Returns the time serie from the series.dmna.src
@@ -726,7 +724,7 @@ class EmissionAllocator
     end
     t0 = parse_time_stamp(ts[0].first)
     t1 = parse_time_stamp(ts[1].first)
-    [ts, (t1 - t0).to_s.to_d]
+    [ts, (t1 - t0).to_f]
   end
 
   #return an array containing the time fraction for each sector
@@ -734,11 +732,11 @@ class EmissionAllocator
     @sec_prf.collect do |prf|
         h_season = prf[:hourly].keys.include?(:annual) ? :annual : season(t.yday)
         d_season = prf[:daily].keys.include?(:annual)  ? :annual : season(t.yday)
-        monthly_fraction   = prf[:monthly][t.month-1].to_s.to_d
+        monthly_fraction   = prf[:monthly][t.month-1]
         weeks_in_month     = weeks_in_month(t.year, t.month)
-        daily_fraction     = prf[:daily][d_season][t.wday].to_s.to_d / weeks_in_month
-        hourly_fraction    = prf[:hourly][h_season][t.hour-1].to_s.to_d
-        duration           = interval_duration / '3600'.to_d
+        daily_fraction     = prf[:daily][d_season][t.wday] / weeks_in_month
+        hourly_fraction    = prf[:hourly][h_season][t.hour-1]
+        duration           = interval_duration / 3600.0
         hourly_fraction * daily_fraction * monthly_fraction * duration
       end
   end

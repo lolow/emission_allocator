@@ -1,5 +1,4 @@
-require 'bigdecimal'
-require 'bigdecimal/util'
+require 'parallel'
 
 class AscMap
 
@@ -14,7 +13,7 @@ class AscMap
       if array.size == 2
         @params[array.first] = array[1].to_f
       else
-        @cells << array.map(&:to_d)
+        @cells << array.map(&:to_f)
       end
     end
 
@@ -52,11 +51,23 @@ class AscMap
     values
   end
 
+  def data_coord
+    values = []
+    (0...@params["nrows"]).each { |row|
+      (0...@params["ncols"]).each { |col|
+        unless @cells[row][col] == @params["NODATA_value"]
+          values << [row,col]
+        end
+      }
+    }
+    values
+  end
+
   def reset_data!(value=nil)
     (0...@params["nrows"]).each do |row|
       (0...@params["ncols"]).each do |col|
         unless @cells[row][col] == @params["NODATA_value"]
-          @cells[row][col] = (value.to_s.to_d || @params["NODATA_value"])
+          @cells[row][col] = (value.to_f || @params["NODATA_value"])
         end
       end
     end
@@ -65,7 +76,7 @@ class AscMap
   def reset!
     @cells = []
     (0...@params["nrows"]).each do |row|
-      @cells << [@params["NODATA_value"].to_s.to_d] * @params["ncols"]
+      @cells << [@params["NODATA_value"].to_f] * @params["ncols"]
     end
   end
 
@@ -76,7 +87,7 @@ class AscMap
         f.puts("#{p} #{@params[p]}") if @params[p]
       end
       @cells.each do |row|
-        f.puts(row.collect{|x|x.to_s('F')}.join(" "))
+        f.puts(row.collect{|x|x.to_s}.join(" "))
       end
     end
   end
@@ -106,7 +117,7 @@ class AscMap
   end
 
   def normalize!(total=1.0)
-    multiply!(total.to_s.to_d/sum_values)
+    multiply!(total.to_f/sum_values)
   end
 
   def round(n=0)
