@@ -253,7 +253,7 @@ class App
       @options.sector.each do |s|
         map = File.join(@options.input_dir,conf["sectoral_maps"][s])
         time = File.join(@options.input_dir,conf["time_allocation"][s])
-        alloc.add_sector(s,map,time)
+        alloc.add_sector(s,map,time,@options.verbose)
       end
 
       # Display info on the share of the episode annually
@@ -396,7 +396,7 @@ class EmissionAllocator
       map = AscMap.new(m)
       yshift = (map.params["yllcorner"].to_i-@src_map.params["yllcorner"].to_i) / cellsize
       xshift = (map.params["xllcorner"].to_i-@src_map.params["xllcorner"].to_i) / cellsize
-      puts "read #{m} - yshift #{yshift} - xshift #{xshift}" if verbose
+      puts "add #{m} to source map - yshift #{yshift} - xshift #{xshift}" if verbose
       map.each_data do |row,col|
         @src_map.cells[row+yshift][col+xshift] = "1".to_d if map.cells[row][col] > 0
       end
@@ -417,16 +417,17 @@ class EmissionAllocator
   end
 
   #Add sector information ordered in the structures
-  def add_sector(name,map,profile,total=1e+6)
+  def add_sector(name,map,profile,total=1e+6,verbose)
     @sectors << name
     sec = AscMap.new(map)
     sec.normalize!(total)
-    yshift = @src_map.params["yllcorner"]-sec.params["yllcorner"].to_i
-    xshift = @src_map.params["xllcorner"]-sec.params["xllcorner"].to_i
+    yshift = (sec.params["yllcorner"].to_i-@src_map.params["yllcorner"].to_i) / @src_map.params["cellsize"].to_i
+    xshift = (sec.params["xllcorner"].to_i-@src_map.params["xllcorner"].to_i) / @src_map.params["cellsize"].to_i
+    puts "add #{name} to space allocation - yshift #{yshift} - xshift #{xshift}" if verbose
     @src_map.each_data do |row,col|
       if row-yshift<0 || col-xshift<0 ||
-         row-yshift>sec.params["nrows"] ||
-         col-xshift>sec.params["ncols"] ||
+         row-yshift>=sec.params["nrows"] ||
+         col-xshift>=sec.params["ncols"] ||
          sec.cells[row-yshift][col-xshift]==sec.params["NODATA_value"]
         @sec_map << '0'.to_d
       else
@@ -496,9 +497,9 @@ class EmissionAllocator
       when "bq"
         newline = "bq #{@bq.join(" ")}"
       when "x0"
-        newline = "x0 #{@x0}"
+        newline = "x0 #@x0"
       when "y0"
-        newline = "y0 #{@y0}"
+        newline = "y0 #@y0"
       when "nox"
         newline = "nox" + " ?" * @nb_src
       when "voc"
@@ -506,7 +507,7 @@ class EmissionAllocator
       when "o3"
         newline = "o3" + " ?" * @nb_src
       when "hq"
-        newline= "hq" + " #{@hq}" * @nb_src
+        newline= "hq" + " #@hq" * @nb_src
       else
         newline = line
       end
