@@ -1,5 +1,3 @@
-require 'parallel'
-
 class AscMap
 
   attr_accessor :params, :cells
@@ -75,7 +73,7 @@ class AscMap
 
   def reset!
     @cells = []
-    (0...@params["nrows"]).each do |row|
+    (0...@params["nrows"]).each do
       @cells << [@params["NODATA_value"].to_f] * @params["ncols"]
     end
   end
@@ -103,7 +101,7 @@ class AscMap
   def cell_value(x,y)
     row =  @params["nrows"] - (y - @params["yllcorner"].to_i )/@params["cellsize"].to_i
     col =  x - @params["xllcorner"].to_i / @params["cellsize"].to_i
-    @cell[row][col]
+    @cells[row][col]
   end
 
   def sum_values

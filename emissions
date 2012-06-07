@@ -83,7 +83,7 @@ class App
       end
 
       opts.on('-e', '--emission TYPE', String, "(annual [default],episode)")  do |type|
-        if ['annual','episode'].include? type
+        if %w(annual episode).include? type
           @options.emissions = type
         else
           puts "emission type should be 'annual' or 'episode'"
@@ -222,6 +222,7 @@ class App
         @options.input_dir = File.dirname(@options.conf)
       end
 
+      emissions = {}
       if @options.emissions=='annual' &&  conf.keys.include?('annual_emissions')
         emissions = conf["annual_emissions"]
       elsif @options.emissions=='episode' &&  conf.keys.include?('episode_emissions')
@@ -230,6 +231,7 @@ class App
         emissions = conf["sectoral_emissions"]
       else
         puts "Error: can not read emissions in conf file (needs annual_emissions, episode_emissions or sectoral_emissions)"
+        exit
       end
 
       # Sectors
