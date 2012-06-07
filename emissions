@@ -239,9 +239,7 @@ class App
       puts "Sectors: " + @options.sector.join(", ") if @options.verbose
 
       # Initialize the emission allocator using austal.txt
-      puts 1
       alloc = EmissionAllocator.new(@options.austal_txt_src)
-      puts 2
 
       # Define the emission sources
       s_maps = @options.sector.collect{|s|File.join(@options.input_dir,conf["sectoral_maps"][s])}
@@ -321,9 +319,7 @@ class EmissionAllocator
     raise "no DEM defined in #@austal_txt !" unless austal_param("gh")
     dem_file = check_file([austal_param("gh"),File.join(File.dirname(@austal_txt),austal_param("gh"))])
     raise "Unable to find #{austal_param("gh")}!" unless dem_file
-    puts 1.1
     @dem = AscMap.new(dem_file,false)
-    puts 1.2
 
     #Initialize default structures
     @xq = []       # source lower left x-coordinates
@@ -652,7 +648,6 @@ class EmissionAllocator
             @src_map.cells[row][col] = line[i].to_f
             i+=1
           end
-          # TODO manage extra source
           name = File.join(output_dir,"#{gas}-#{line.first.tr(":","")}.asc")
           filenames << name
           @src_map.write_asc(name)
