@@ -199,5 +199,5 @@ Otherwise when the pollutant is just written, the value are expressed in gram pe
 ## Copyright
 
 The code is licensed to the MIT License (MIT). See the LICENSE file for the full license. 
-Copyright (c) 2011 Public Research Center Henri Tudor
+Copyright (c) 2011-2012 Public Research Center Henri Tudor
 
