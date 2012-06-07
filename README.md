@@ -57,9 +57,9 @@ This script is used by the Luxembourg Energy Air Quality LEAQ model (http://crte
         -h, --help                       Show this message
 
 
-## Emission map
+## Emission maps
 
-Map are ESRI raster map as follows:
+The sectoral maps are ESRI raster maps as follows:
 
     ncols 4
     nrows 4
@@ -76,7 +76,7 @@ The sum of the grid cell does need to be equal to 1, the script normalizes itsel
 
 ## Time profiles
 
-The time profile are yml files of the following form:
+The time profiles are yml files of the following form:
 
     ---·
     :hourly:·
@@ -128,7 +128,7 @@ The time profile are yml files of the following form:
       - 0.12
       - 0.11
 
-An homogenous distribution can be easily generated in ruby. Type the following in irb:
+An homogenous distribution can be easily generated in ruby. Type the following in irb to create a file *profile.yml*:
 
       require 'yaml'
       profile = {hourly:{annual:[1.0/24]*24},monthly:[1.0/12]*12,daily:{annual:[1.0/7]*7}}
@@ -143,8 +143,7 @@ December]. Its sum must be equal to 1.
 
 *:daily* defines the daily profile. It is a hash {key:array}, where key is *:annual* for a annual profile or
 *:winter*, *:summer* and *:midseason* for seasonnal profile.
-The array(s) contain 24 values for each weekday, as
-[Monday, Tuesday, ..., Sunday].
+The array(s) contain 24 values for each weekday, as [Monday, Tuesday, ..., Sunday].
 Sum per array must be equal to 1.
 
 ## Emission file
