@@ -2,16 +2,16 @@ class AscMap
 
   attr_accessor :params, :cells
 
-  def initialize(filename=nil)
+  def initialize(filename,load_cells=true)
     @params = {}
     @cells = []
 
     File.foreach(filename) do |line|
-      array = line.split
-      if array.size == 2
+      array = line.split(" ",3)
+      if array[2] == ""
         @params[array.first] = array[1].to_f
-      else
-        @cells << array.map(&:to_f)
+      elsif load_cells
+        @cells << line.split.map(&:to_f)
       end
     end
 
