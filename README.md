@@ -1,16 +1,25 @@
 # Space-Time Emission Allocation of annual sectoral emissions for Austal2000
 
-This script is generating time series of emission strength (g/s-1) for austal2000 (http://www.austal2000.de)
+This script is generating time series of emission strength (g/s-1) for austal2000 (http://www.austal2000.de),
+an atmospheric dispersion model for simulating the dispersion of air pollutants in the ambient atmosphere.
+Annual/episode (several days) emissions are
 *   distributed in space according to sectoral distribution maps,
 *   distributed in time according to sectoral time profile.
 
-The script collects the sectoral distribution maps and create a raster source map which is the union of these maps.
-Every grid cell of the source map will be defined as an equivalent emission source area in austal.txt.
-Extra source can be also defined manually, see the section above for details.
+The script collects the sectoral distribution maps and create a source map which covers all of them.
+Every grid cell of the source map will be defined as emission source areas in *austal.txt*.
+Emissions sources and their strenght are generated in the file *series.dmna*.
+Extra sources can be also defined manually, see the section above for details.
+
+From an existing working directory of AUSTAL2000, the files *austal.txt* and *series.dmna* can be used as template,
+simply rename them as *austal.txt.src* and *series.dmna.src*. The definition files (time profile, maps, emissions)
+should be located in a separate directory.
+
+This script is used by the Luxembourg Energy Air Quality LEAQ model (http://crteweb.tudor.lu/leaq).
 
 ## Requirements
 
-*   Ruby environment (works with ruby 1.8.7, ruby 1.9.2, jruby 1.5.6)
+*   Ruby environment (ruby 1.9.2 or higher)
 *   Austal2000 input files to be completed
 *   austal2000.txt source containing at list the following parameters
     *    gh : filename of the DEM (austal calculation domain)
@@ -18,7 +27,7 @@ Extra source can be also defined manually, see the section above for details.
 *   series.dmna source
     *   the header must contain (hghb : number of time interval)
     *   the body must contain the list of time steps
-*   Sectoral distribution maps : density map (no need to be normalized)
+*   Sectoral distribution maps : spatial density maps
 *   Sectoral time profiles (yml format) : monthly,daily,hourly shares
 *   Sectoral annual emissions (yml formal) : ton/year
 
@@ -46,6 +55,24 @@ Extra source can be also defined manually, see the section above for details.
     Common options:
         --version                        Show version
         -h, --help                       Show this message
+
+
+## Emission map
+
+Map are ESRI raster map as follows:
+
+    ncols 4
+    nrows 4
+    xllcorner 800000
+    yllcorner 9000000
+    cellsize 10000
+    NODATA_value -9999
+    -9999 1     -9999 -9999
+    -9999 1     1     1
+    -9999 -9999 1     0.5
+    -9999 -9999 -9999 0.5
+
+The sum of the grid cell does need to be equal to 1, the script normalizes itself the map.
 
 ## Time profiles
 
@@ -91,8 +118,8 @@ The time profile are yml files of the following form:
     - 0.09
     - 0.10
     - 0.09
-    :daily:·
-      :annual:·
+    :daily:
+      :annual:
       - 0.14
       - 0.15
       - 0.15
@@ -123,6 +150,26 @@ Sum per array must be equal to 1.
 ## Emission file
 
 The emission file contains the information about sectors, files and emissions. Look at the following example:
+
+    ---
+    sectoral_maps:
+      snap1: land_cover_snap1.asc
+      snap2: land_cover_snap2.asc
+    time_allocation:
+      snap1: profile_snap1.yml
+      snap2: profile_snap1.yml
+    sectoral_emissions:
+      snap1:
+        nox: 1035
+        voc: 28
+      snap2:
+        nox: 16
+        voc: 1
+
+The emissions are expressed in ton, and by default, are expressed in ton per year. If the type of emission
+is defined as "episode" (with the parameter -e), the emissions are the total emissions over the time serie
+defined in the $series.dmna.src$ template
+
 
 ## Extra sources
 
