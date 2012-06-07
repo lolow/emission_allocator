@@ -1,6 +1,14 @@
 # Space-Time Emission Allocation of annual sectoral emissions for Austal2000
 
-## Requirements:
+This script is generating time series of emission strength (g/s-1) for austal2000 (http://www.austal2000.de)
+*   distributed in space according to sectoral distribution maps,
+*   distributed in time according to sectoral time profile.
+
+The script collects the sectoral distribution maps and create a raster source map which is the union of these maps.
+Every grid cell of the source map will be defined as an equivalent emission source area in austal.txt.
+Extra source can be also defined manually, see the section above for details.
+
+## Requirements
 
 *   Ruby environment (works with ruby 1.8.7, ruby 1.9.2, jruby 1.5.6)
 *   Austal2000 input files to be completed
@@ -10,21 +18,20 @@
 *   series.dmna source
     *   the header must contain (hghb : number of time interval)
     *   the body must contain the list of time steps
-*   Emission sources map in grid-ascii format : all cells but NODATA's
-*   Sectoral distribution maps : factors from ton to gramme/cell [cells sum should be equal to 10^6]
-*   Sectoral time profile (yml format) : monthly,daily,hourly shares
-*   Sectoral annual emission (yml formal) : ton/year
+*   Sectoral distribution maps : density map (no need to be normalized)
+*   Sectoral time profiles (yml format) : monthly,daily,hourly shares
+*   Sectoral annual emissions (yml formal) : ton/year
 
-## Usage:
+## Usage
 
 
     Usage: emissions.rb conf.yml [options]
 
     Specific options:
         -v, --[no-]verbose               Run verbosely
-        -m, --[no-]maps                  generate emission maps
+        -m, --[no-]maps                  Generate emission maps
         -e, --emission TYPE              (annual [default],episode)
-        -f, --[no-]details               compute sectoral emission of the episode
+        -f, --[no-]details               Compute sectoral emission of the episode
         -a, --austal-src FILE            Default: austal2000.txt.src
         -d, --dmna-src FILE              Default: series.dmna.src
         --austal-out FILE                Default: austal2000.txt
@@ -32,13 +39,111 @@
         -w, --write-emi FILE             Default:
         -i, --input DIR                  Default: conf.yml path
         -o, --output DIR                 Default: current dir
-        -x, --extra-src FILE             where each row contains space-separated values with header:
+        -x, --extra-src FILE             Where each row contains space-separated values with header:
                                              xq yq aq bq [nox voc no no2 so2 co pm-1 pm-2 o3]
         -s, --sector x,y,z               Specify a list of sectors
                                              example: tra,prd,ind
     Common options:
         --version                        Show version
         -h, --help                       Show this message
+
+## Time profiles
+
+The time profile are yml files of the following form:
+
+    ---·
+    :hourly:·
+      :annual:·
+      - 0.03
+      - 0.03
+      - 0.029
+      - 0.030
+      - 0.033
+      - 0.038
+      - 0.045
+      - 0.049
+      - 0.050
+      - 0.050
+      - 0.050
+      - 0.048
+      - 0.047
+      - 0.047
+      - 0.047
+      - 0.045
+      - 0.044
+      - 0.043
+      - 0.042
+      - 0.042
+      - 0.042
+      - 0.04
+      - 0.036
+      - 0.032
+    :monthly:
+    - 0.09
+    - 0.09
+    - 0.07
+    - 0.07
+    - 0.07
+    - 0.08
+    - 0.07
+    - 0.06
+    - 0.07
+    - 0.09
+    - 0.10
+    - 0.09
+    :daily:·
+      :annual:·
+      - 0.14
+      - 0.15
+      - 0.15
+      - 0.15
+      - 0.15
+      - 0.12
+      - 0.11
+
+An homogenous distribution can be easily generated in ruby. Type the following in irb:
+
+      require 'yaml'
+      profile = {hourly:{annual:[1.0/24]*24},monthly:[1.0/12]*12,daily:{annual:[1.0/7]*7}}
+      File.new('profile.yml','w').write(profile.to_yaml)
+
+*:hourly* defines the hourly profile. It is a hash {key:array}, where key is *:annual* for a annual profile or
+*:winter*, *:summer* and *:midseason* for seasonnal profile. The array(s) contain 24 values for each hour, as
+[1sth hour, 2nd hour, 3rd hour, ..., 24th hour]. The sum per array must be equal to 1.
+
+*:monthly* defines the monthly profile. The array contain 12 values for each month, as [January, February, ...,
+December]. Its sum must be equal to 1.
+
+*:daily* defines the daily profile. It is a hash {key:array}, where key is *:annual* for a annual profile or
+*:winter*, *:summer* and *:midseason* for seasonnal profile.
+The array(s) contain 24 values for each weekday, as
+[Monday, Tuesday, ..., Sunday].
+Sum per array must be equal to 1.
+
+## Emission file
+
+The emission file contains the information about sectors, files and emissions. Look at the following example:
+
+## Extra sources
+
+Extra sources are manually defined by the user. It allows to define emission sources bigger than the size of the source
+map grid cells.
+
+In a text file with space-separated values, the header contains the name of the source, the coordinates xq, yq, aq, bq
+as defined by AUSTAL2000, then the pollutants. When the pollutant is postfixed with '~' + the sector name, the
+value is expressed in tonne per year and will be distributed in time according to the sector time profile.
+
+    name xq    yq     aq    bq   voc~snap1 voc~snap2 nox~snap1 nox~snap2
+    S1   12718 13011  12700 2300 32        610       29        415
+    S2   22718 55611  34000 8300 59        296       34        775
+    S3   12718 40611  12700 1500 124       996       145       1091
+
+Otherwise when the pollutant is just written, the value are expressed in gram per second and will be used at every timestep.
+
+    name xq    yq     aq    bq   voc  nox
+    S1   12718 13011  12700 2300 0.01 10
+    S2   22718 55611  34000 8300 6    86
+    S3   12718 40611  12700 1500 12   6
 
 ## Authors
 
