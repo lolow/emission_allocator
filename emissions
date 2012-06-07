@@ -195,7 +195,7 @@ class App
 
   protected
 
-     def pprint hash
+     def pprint(hash)
        hash.each do |key,value|
          puts "#{key}: #{value}"
        end
@@ -218,7 +218,7 @@ class App
       end
 
       # define input_dir if necessary
-      if @options.input_dir == ''
+      if @options.input_dir == ""
         @options.input_dir = File.dirname(@options.conf)
       end
 
@@ -251,7 +251,7 @@ class App
       @options.sector.each do |s|
         map = File.join(@options.input_dir,conf["sectoral_maps"][s])
         time = File.join(@options.input_dir,conf["time_allocation"][s])
-        alloc.add_sector(s,map,time,@options.verbose)
+        alloc.add_sector(s,map,time,1e+6,@options.verbose)
       end
 
       # Display info on the share of the episode annually
@@ -280,12 +280,14 @@ class App
 
       # Write series.dmna input file (and perform the space-time allocation)
       filename = File.join(@options.output_dir,@options.series_dmna)
-      summary = alloc.write_time_series(@options.series_dmna_src,filename,emissions,@options.compute_details)
+      summary = alloc.write_time_series(@options.series_dmna_src,filename,emissions,
+                                        @options.compute_details,@options.verbose)
       puts "series.dmna" if @options.verbose
       pprint summary if @options.verbose
 
       # Create maps (should be called only at the very end)
-      alloc.write_maps(@options.output_dir,@options.series_dmna) if @options.maps
+      puts "create maps" if @options.maps
+      alloc.write_maps(@options.output_dir,@options.series_dmna, @options.verbose) if @options.maps
 
       # Write annual emissions
       unless @options.write_emission_file==''
@@ -312,8 +314,8 @@ class EmissionAllocator
     @austal_txt = austal_txt
 
     #Find DEM file
-    raise "no DEM defined in #{@austal_txt}!" unless austal_param("gh")
-    dem_file = check_file [austal_param("gh"),File.join(File.dirname(@austal_txt),austal_param("gh"))]
+    raise "no DEM defined in #@austal_txt !" unless austal_param("gh")
+    dem_file = check_file([austal_param("gh"),File.join(File.dirname(@austal_txt),austal_param("gh"))])
     raise "Unable to find #{austal_param("gh")}!" unless dem_file
     @dem = AscMap.new(dem_file)
 
@@ -354,7 +356,7 @@ class EmissionAllocator
   end
 
   #Read a map and define an emission source where there is a value
-  def define_sources(s_maps,verbose)
+  def define_sources(s_maps,verbose=nil)
 
     s_maps.uniq!
 
@@ -415,7 +417,7 @@ class EmissionAllocator
   end
 
   #Add sector information ordered in the structures
-  def add_sector(name,map,profile,total=1e+6,verbose)
+  def add_sector(name,map,profile,total=1e+6,verbose=nil)
     @sectors << name
     sec = AscMap.new(map)
     sec.normalize!(total)
@@ -485,7 +487,7 @@ class EmissionAllocator
     summary["max_line_size"] = 0
     f = File.new(output,"w")
     File.foreach(@austal_txt) do |line|
-      case line.split(" ").first
+      case line.split(" ",2).first
       when "xq"
         newline = "xq #{@xq.join(" ")}"
       when "yq"
@@ -517,7 +519,7 @@ class EmissionAllocator
   end
 
   # write series.dmna input
-  def write_time_series(template_series,output_series,annual_emissions,compute_details)
+  def write_time_series(template_series,output_series,annual_emissions,compute_details,verbose=nil)
     summary = {}
 
     # sort annual emissions
@@ -539,15 +541,15 @@ class EmissionAllocator
     File.foreach(template_series) do |line|
       if header
         newline = line
-        case line.split.first
-        when "form"
+        key = line.split(' ',2).first
+        if key == "form"
           newline = 'form   "te%20lt" "ra%5.0f" "ua%5.1f" "lm%7.1f"'
           @polls.each do |p|
             (1..@nb_src).each do |i|
               newline << " " + '"%02d.' % i + p + '%10.3e"'
             end
           end
-        when "*"
+        elsif key == "*"
           header = false
         end
         fs.puts(newline)
@@ -563,6 +565,7 @@ class EmissionAllocator
     ts.each do |serie|
       time_stamp = serie.first
       t = parse_time_stamp(time_stamp)
+      puts t if verbose
 
       #Collect the sectoral emission fractions for an time interval starting at time t
       time_frac = sectoral_time_frac(t,interval_duration)
@@ -570,7 +573,6 @@ class EmissionAllocator
       newline = "#{time_stamp}\t%5.0f\t%5.1f\t%7.1f" % [serie[1],serie[2],serie[3]]
 
       #Compute pollutants strengths
-      o3_i = @polls.index("o3")
       @polls.each_index do |p_i|
         milestone = @nb_src-@nb_extra_src
         (0...milestone).each do |i|
@@ -599,8 +601,25 @@ class EmissionAllocator
 
         end
         (milestone...@nb_src).each do |i|
-          puts  @extra_src_emi[i-milestone][@polls[p_i]]
-          newline << " %s" % @extra_src_emi[i-milestone][@polls[p_i]]
+          keys = @extra_src_emi[i-milestone].keys
+          keys.select!{|k| k.start_with?(@polls[p_i])}
+          if keys.size == 0 # No emissions
+            strength = 0.0
+          elsif keys.size==1 && keys.index('~') # emission already in g/s-1
+            strength = @extra_src_emi[i-milestone][keys.first].to_f
+          else
+            strength = 0.0
+            keys.each do |key|
+              sec_i = @sectors.index(key.split('~').last)
+              if sec_i
+                time  = time_frac[sec_i]
+                additional = time  * @extra_src_emi[i-milestone][key].to_f / 3600.0
+                strength += additional
+              end
+            end
+
+          end
+          newline << " %.5e" % strength
         end
       end
 
@@ -612,7 +631,7 @@ class EmissionAllocator
   end
 
   # write emission maps from the generated series.dmna
-  def write_maps(output_dir,output_series)
+  def write_maps(output_dir,output_series,verbose=nil)
     filenames = []
     total_episode = Hash.new(0)
 
@@ -627,11 +646,12 @@ class EmissionAllocator
             @src_map.cells[row][col] = line[i].to_f
             i+=1
           end
+          # TODO manage extra source
           name = File.join(output_dir,"#{gas}-#{line.first.tr(":","")}.asc")
           filenames << name
           @src_map.write_asc(name)
           sum = @src_map.sum_values
-          puts "#{line.first.tr(":","")}: #{gas} : #{sum}"
+          puts "#{line.first.tr(":","")}: #{gas} : #{sum}" if verbose
           total_episode[gas] = total_episode[gas] + sum
         end
       end
@@ -686,7 +706,7 @@ class EmissionAllocator
   def austal_param(key)
     value = nil
     File.foreach(@austal_txt) do |line|
-      array = line.split(" ")
+      array = line.split
       value = array.last.tr('"','') if array.first==key
       break if value
     end
@@ -708,9 +728,11 @@ class EmissionAllocator
   end
 
   # Returns the numbers of weeks in a month
-  def weeks_in_month(year, month)
-    days_in_month = (Date.new(year, 12, 31) << (12-month)).day # http://snippets.dzone.com/posts/show/4397
-    days_in_month.to_f / 7
+  COMMON_YEAR_DAYS_IN_MONTH = [nil, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+  def weeks_in_month(month, year = Time.now.year)
+     return 29 if month == 2 && Date.gregorian_leap?(year)
+     COMMON_YEAR_DAYS_IN_MONTH[month].to_f / 7
   end
 
   # Returns the time serie from the series.dmna.src
@@ -718,7 +740,7 @@ class EmissionAllocator
     ts = []
     header = true
     File.foreach(template_series) do |line|
-     line = line.split
+     line = line.split(' ',6)
       ts << line[0..4] unless header || line.size < 4
       header = false if line.first=="*"
     end
@@ -733,7 +755,7 @@ class EmissionAllocator
         h_season = prf[:hourly].keys.include?(:annual) ? :annual : season(t.yday)
         d_season = prf[:daily].keys.include?(:annual)  ? :annual : season(t.yday)
         monthly_fraction   = prf[:monthly][t.month-1]
-        weeks_in_month     = weeks_in_month(t.year, t.month)
+        weeks_in_month     = weeks_in_month(t.month, t.year)
         daily_fraction     = prf[:daily][d_season][t.wday] / weeks_in_month
         hourly_fraction    = prf[:hourly][h_season][t.hour-1]
         duration           = interval_duration / 3600.0
