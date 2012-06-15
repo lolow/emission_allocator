@@ -581,9 +581,13 @@ class EmissionAllocator
 
           strength = 0.0
           @sectors.each_index do |sec_i|
+            emi = emissions[p_i+sec_i*@polls.size]
+            next if emi==0
             time  = time_frac[sec_i]
+            next if time==0
             space = @sec_map[i+sec_i*milestone]
-            additional = time * space * emissions[p_i+sec_i*@polls.size] / 3600.0
+            next if space==0
+            additional = time * space * emi / 3.6 / 1000
             summary["#{@sectors[sec_i]}-#{@polls[p_i]}"] += (additional * interval_duration) if compute_details
             strength += additional
           end
@@ -592,11 +596,9 @@ class EmissionAllocator
 
           if strength < 0
             puts "Negative strength = #{strength}"
+            puts "Source #{i}"
             @sectors.each_index do |sec_i|
-              puts "sec #{@sectors[sec_i]}"
-              puts "time frac= #{time_frac[sec_i]}"
-              puts "space frac= #{@sec_map[i+sec_i*milestone]}"
-              puts "emis=#{emissions[p_i+sec_i*@polls.size]}"
+              puts "sec #{@sectors[sec_i]} - time frac= #{time_frac[sec_i]} - space frac= #{@sec_map[i+sec_i*milestone]} - emis=#{emissions[p_i+sec_i*@polls.size]}"
             end
             exit 255
           end
