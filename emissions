@@ -198,7 +198,7 @@ class App
 
   protected
 
-     def pprint hash
+     def pprint(hash)
        hash.each do |key,value|
          puts "#{key}: #{value.round(15).to_s('F')}"
        end
