@@ -1,21 +1,17 @@
-require 'bigdecimal'
-require 'bigdecimal/util'
-
 class AscMap
 
   attr_accessor :params, :cells
 
-  def initialize(filename=nil)
-    
+  def initialize(filename,load_cells=true)
     @params = {}
     @cells = []
 
     File.foreach(filename) do |line|
-      array = line.split
-      if array.size == 2
+      array = line.split(" ",3)
+      if array[2] == ""
         @params[array.first] = array[1].to_f
-      else
-        @cells << array.map(&:to_d)
+      elsif load_cells
+        @cells << line.split.map(&:to_f)
       end
     end
 
@@ -29,7 +25,6 @@ class AscMap
         @params[p] = "31#{@params[p]}"
       end
     end
-
   end
 
   def each_data
@@ -54,11 +49,23 @@ class AscMap
     values
   end
 
+  def data_coord
+    values = []
+    (0...@params["nrows"]).each { |row|
+      (0...@params["ncols"]).each { |col|
+        unless @cells[row][col] == @params["NODATA_value"]
+          values << [row,col]
+        end
+      }
+    }
+    values
+  end
+
   def reset_data!(value=nil)
     (0...@params["nrows"]).each do |row|
       (0...@params["ncols"]).each do |col|
         unless @cells[row][col] == @params["NODATA_value"]
-          @cells[row][col] = (value.to_s.to_d || @params["NODATA_value"])
+          @cells[row][col] = (value.to_f || @params["NODATA_value"])
         end
       end
     end
@@ -66,8 +73,8 @@ class AscMap
 
   def reset!
     @cells = []
-    (0...@params["nrows"]).each do |row|
-      @cells << [@params["NODATA_value"].to_s.to_d] * @params["ncols"]
+    (0...@params["nrows"]).each do
+      @cells << [@params["NODATA_value"].to_f] * @params["ncols"]
     end
   end
 
@@ -78,7 +85,7 @@ class AscMap
         f.puts("#{p} #{@params[p]}") if @params[p]
       end
       @cells.each do |row|
-        f.puts(row.collect{|x|x.to_s('F')}.join(" "))
+        f.puts(row.collect{|x|x.to_s}.join(" "))
       end
     end
   end
@@ -94,11 +101,11 @@ class AscMap
   def cell_value(x,y)
     row =  @params["nrows"] - (y - @params["yllcorner"].to_i )/@params["cellsize"].to_i
     col =  x - @params["xllcorner"].to_i / @params["cellsize"].to_i
-    @cell[row][col]
+    @cells[row][col]
   end
 
   def sum_values
-   data_values.inject( nil ) { |sum,x| sum ? sum + x : x }
+    data_values.inject( nil ) { |sum,x| sum ? sum + x : x }
   end
 
   def multiply!(mul)
@@ -108,7 +115,7 @@ class AscMap
   end
 
   def normalize!(total=1.0)
-    multiply!(total.to_s.to_d/sum_values)
+    multiply!(total.to_f/sum_values)
   end
 
   def round(n=0)

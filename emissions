@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 #--
-# Copyright (c) 2011, Public Research Center Henri Tudor
+# Copyright (c) 2011-2012, Public Research Center Henri Tudor
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -26,11 +26,9 @@
 #   according to a YAML configuration file.
 #
 # == Authors
-#   Laurent Drouet [ldrouet at gmail.com], Lara Aleluia Reis [lara.aleluia at tudor.com]
+#   Lara Aleluia Reis [lara.aleluia at tudor.com], Laurent Drouet [ldrouet at gmail.com] 
 #++
 
-require 'bigdecimal'
-require 'bigdecimal/util'
 require 'optparse'
 require 'rdoc/rdoc'
 require 'benchmark'
@@ -69,10 +67,9 @@ class App
 
   # Parse options, check arguments, then process the command
   def run
-
     opts = OptionParser.new do |opts|
 
-      opts.banner = "Usage: emissions.rb conf.yml [options]"
+      opts.banner = "Usage: emissions conf.yml [options]"
 
       opts.separator ""
       opts.separator "Specific options:"
@@ -86,7 +83,7 @@ class App
       end
 
       opts.on('-e', '--emission TYPE', String, "(annual [default],episode)")  do |type|
-        if ['annual','episode'].include? type
+        if %w(annual episode).include? type
           @options.emissions = type
         else
           puts "emission type should be 'annual' or 'episode'"
@@ -200,7 +197,7 @@ class App
 
      def pprint(hash)
        hash.each do |key,value|
-         puts "#{key}: #{value.round(15).to_s('F')}"
+         puts "#{key}: #{value}"
        end
      end
 
@@ -221,10 +218,11 @@ class App
       end
 
       # define input_dir if necessary
-      if @options.input_dir == ''
+      if @options.input_dir == ""
         @options.input_dir = File.dirname(@options.conf)
       end
 
+      emissions = {}
       if @options.emissions=='annual' &&  conf.keys.include?('annual_emissions')
         emissions = conf["annual_emissions"]
       elsif @options.emissions=='episode' &&  conf.keys.include?('episode_emissions')
@@ -233,6 +231,7 @@ class App
         emissions = conf["sectoral_emissions"]
       else
         puts "Error: can not read emissions in conf file (needs annual_emissions, episode_emissions or sectoral_emissions)"
+        exit
       end
 
       # Sectors
@@ -254,7 +253,7 @@ class App
       @options.sector.each do |s|
         map = File.join(@options.input_dir,conf["sectoral_maps"][s])
         time = File.join(@options.input_dir,conf["time_allocation"][s])
-        alloc.add_sector(s,map,time)
+        alloc.add_sector(s,map,time,1e+6,@options.verbose)
       end
 
       # Display info on the share of the episode annually
@@ -263,9 +262,9 @@ class App
         @options.sector.each_with_index do |s,i|
           emissions[s].each do |poll,value|
             if share[i]==0
-              emissions[s][poll] = '0'.to_d
+              emissions[s][poll] = 0
             else
-              emissions[s][poll] = value.to_s.to_d / share[i]
+              emissions[s][poll] = value.to_f / share[i]
             end
           end
 
@@ -283,12 +282,14 @@ class App
 
       # Write series.dmna input file (and perform the space-time allocation)
       filename = File.join(@options.output_dir,@options.series_dmna)
-      summary = alloc.write_time_series(@options.series_dmna_src,filename,emissions,@options.compute_details)
+      summary = alloc.write_time_series(@options.series_dmna_src,filename,emissions,
+                                        @options.compute_details,@options.verbose)
       puts "series.dmna" if @options.verbose
       pprint summary if @options.verbose
 
       # Create maps (should be called only at the very end)
-      alloc.write_maps(@options.output_dir,@options.series_dmna) if @options.maps
+      puts "create maps" if @options.maps
+      alloc.write_maps(@options.output_dir,@options.series_dmna, @options.verbose) if @options.maps
 
       # Write annual emissions
       unless @options.write_emission_file==''
@@ -312,14 +313,13 @@ class EmissionAllocator
   # A good template file should work with austal2000 without changes.
   # @return [EmissionAllocator]
   def initialize(austal_txt)
-
     @austal_txt = austal_txt
 
     #Find DEM file
-    raise "no DEM defined in #{@austal_txt}!" unless austal_param("gh")
-    dem_file = check_file [austal_param("gh"),File.join(File.dirname(@austal_txt),austal_param("gh"))]
+    raise "no DEM defined in #@austal_txt !" unless austal_param("gh")
+    dem_file = check_file([austal_param("gh"),File.join(File.dirname(@austal_txt),austal_param("gh"))])
     raise "Unable to find #{austal_param("gh")}!" unless dem_file
-    @dem = AscMap.new(dem_file)
+    @dem = AscMap.new(dem_file,false)
 
     #Initialize default structures
     @xq = []       # source lower left x-coordinates
@@ -358,7 +358,7 @@ class EmissionAllocator
   end
 
   #Read a map and define an emission source where there is a value
-  def define_sources(s_maps,verbose)
+  def define_sources(s_maps,verbose=nil)
 
     s_maps.uniq!
 
@@ -398,9 +398,9 @@ class EmissionAllocator
       map = AscMap.new(m)
       yshift = (map.params["yllcorner"].to_i-@src_map.params["yllcorner"].to_i) / cellsize
       xshift = (map.params["xllcorner"].to_i-@src_map.params["xllcorner"].to_i) / cellsize
-      puts "read #{m} - yshift #{yshift} - xshift #{xshift}" if verbose
+      puts "add #{m} to source map - yshift #{yshift} - xshift #{xshift}" if verbose
       map.each_data do |row,col|
-        @src_map.cells[row+yshift][col+xshift] = "1".to_d if map.cells[row][col] > 0
+        @src_map.cells[row+yshift][col+xshift] = 1 if map.cells[row][col] > 0
       end
     end
 
@@ -419,18 +419,19 @@ class EmissionAllocator
   end
 
   #Add sector information ordered in the structures
-  def add_sector(name,map,profile,total=1e+6)
+  def add_sector(name,map,profile,total=1e+6,verbose=nil)
     @sectors << name
     sec = AscMap.new(map)
     sec.normalize!(total)
-    yshift = @src_map.params["yllcorner"]-sec.params["yllcorner"].to_i
-    xshift = @src_map.params["xllcorner"]-sec.params["xllcorner"].to_i
+    yshift = (sec.params["yllcorner"].to_i-@src_map.params["yllcorner"].to_i) / @src_map.params["cellsize"].to_i
+    xshift = (sec.params["xllcorner"].to_i-@src_map.params["xllcorner"].to_i) / @src_map.params["cellsize"].to_i
+    puts "add #{name} to space allocation - yshift #{yshift} - xshift #{xshift}" if verbose
     @src_map.each_data do |row,col|
       if row-yshift<0 || col-xshift<0 ||
-         row-yshift>sec.params["nrows"] ||
-         col-xshift>sec.params["ncols"] ||
+         row-yshift>=sec.params["nrows"] ||
+         col-xshift>=sec.params["ncols"] ||
          sec.cells[row-yshift][col-xshift]==sec.params["NODATA_value"]
-        @sec_map << '0'.to_d
+        @sec_map << 0
       else
         @sec_map << sec.cells[row-yshift][col-xshift]
       end
@@ -485,10 +486,10 @@ class EmissionAllocator
   # write austal2000.txt input
   def write_austal_txt(output)
     summary = {}
-    summary["max_line_size"] = '0'.to_d
+    summary["max_line_size"] = 0
     f = File.new(output,"w")
     File.foreach(@austal_txt) do |line|
-      case line.split(" ").first
+      case line.split(" ",2).first
       when "xq"
         newline = "xq #{@xq.join(" ")}"
       when "yq"
@@ -498,9 +499,9 @@ class EmissionAllocator
       when "bq"
         newline = "bq #{@bq.join(" ")}"
       when "x0"
-        newline = "x0 #{@x0}"
+        newline = "x0 #@x0"
       when "y0"
-        newline = "y0 #{@y0}"
+        newline = "y0 #@y0"
       when "nox"
         newline = "nox" + " ?" * @nb_src
       when "voc"
@@ -508,11 +509,11 @@ class EmissionAllocator
       when "o3"
         newline = "o3" + " ?" * @nb_src
       when "hq"
-        newline= "hq" + " #{@hq}" * @nb_src
+        newline= "hq" + " #@hq" * @nb_src
       else
         newline = line
       end
-      summary["max_line_size"] = newline.size.to_s.to_d if newline.size > summary["max_line_size"]
+      summary["max_line_size"] = newline.size if newline.size > summary["max_line_size"]
       f.puts(newline)
     end
     f.close
@@ -520,14 +521,14 @@ class EmissionAllocator
   end
 
   # write series.dmna input
-  def write_time_series(template_series,output_series,annual_emissions,compute_details)
+  def write_time_series(template_series,output_series,annual_emissions,compute_details,verbose=nil)
     summary = {}
 
     # sort annual emissions
     emissions = []
     @sectors.each do |sec|
       @polls.each do |p|
-        emissions << (annual_emissions[sec][p] ? annual_emissions[sec][p].to_s.to_d : '0'.to_d)
+        emissions << (annual_emissions[sec][p] ? annual_emissions[sec][p].to_f : 0)
       end
     end
 
@@ -542,22 +543,22 @@ class EmissionAllocator
     File.foreach(template_series) do |line|
       if header
         newline = line
-        case line.split.first
-        when "form"
+        key = line.split(' ',2).first
+        if key == "form"
           newline = 'form   "te%20lt" "ra%5.0f" "ua%5.1f" "lm%7.1f"'
           @polls.each do |p|
             (1..@nb_src).each do |i|
               newline << " " + '"%02d.' % i + p + '%10.3e"'
             end
           end
-        when "*"
+        elsif key == "*"
           header = false
         end
         fs.puts(newline)
       end
     end
 
-    summary["max_line_size"] = '0'.to_d
+    summary["max_line_size"] = 0
     if compute_details
       @sectors.each{|s|@polls.each{|p|summary["#{s}-#{p}"]=0}}
     end
@@ -566,6 +567,7 @@ class EmissionAllocator
     ts.each do |serie|
       time_stamp = serie.first
       t = parse_time_stamp(time_stamp)
+      puts t if verbose
 
       #Collect the sectoral emission fractions for an time interval starting at time t
       time_frac = sectoral_time_frac(t,interval_duration)
@@ -573,16 +575,19 @@ class EmissionAllocator
       newline = "#{time_stamp}\t%5.0f\t%5.1f\t%7.1f" % [serie[1],serie[2],serie[3]]
 
       #Compute pollutants strengths
-      o3_i = @polls.index("o3")
       @polls.each_index do |p_i|
         milestone = @nb_src-@nb_extra_src
         (0...milestone).each do |i|
 
-          strength = '0'.to_d
+          strength = 0.0
           @sectors.each_index do |sec_i|
+            emi = emissions[p_i+sec_i*@polls.size]
+            next if emi==0
             time  = time_frac[sec_i]
+            next if time==0
             space = @sec_map[i+sec_i*milestone]
-            additional = time * space * emissions[p_i+sec_i*@polls.size] / '3600'.to_d
+            next if space==0
+            additional = time * space * emi / 3.6 / 1000
             summary["#{@sectors[sec_i]}-#{@polls[p_i]}"] += (additional * interval_duration) if compute_details
             strength += additional
           end
@@ -591,23 +596,38 @@ class EmissionAllocator
 
           if strength < 0
             puts "Negative strength = #{strength}"
+            puts "Source #{i}"
             @sectors.each_index do |sec_i|
-              puts "sec #{@sectors[sec_i]}"
-              puts "time frac= #{time_frac[sec_i]}"
-              puts "space frac= #{@sec_map[i+sec_i*milestone]}"
-              puts "emis=#{emissions[p_i+sec_i*@polls.size]}"
+              puts "sec #{@sectors[sec_i]} - time frac= #{time_frac[sec_i]} - space frac= #{@sec_map[i+sec_i*milestone]} - emis=#{emissions[p_i+sec_i*@polls.size]}"
             end
             exit 255
           end
 
         end
         (milestone...@nb_src).each do |i|
-          puts  @extra_src_emi[i-milestone][@polls[p_i]]
-          newline << " %s" % @extra_src_emi[i-milestone][@polls[p_i]]
+          keys = @extra_src_emi[i-milestone].keys
+          keys.select!{|k| k.start_with?(@polls[p_i])}
+          if keys.size == 0 # No emissions
+            strength = 0.0
+          elsif keys.size==1 && keys.index('~') # emission already in g/s-1
+            strength = @extra_src_emi[i-milestone][keys.first].to_f
+          else
+            strength = 0.0
+            keys.each do |key|
+              sec_i = @sectors.index(key.split('~').last)
+              if sec_i
+                time  = time_frac[sec_i]
+                additional = time  * @extra_src_emi[i-milestone][key].to_f / 3600.0
+                strength += additional
+              end
+            end
+
+          end
+          newline << " %.5e" % strength
         end
       end
 
-      summary["max_line_size"] = newline.size.to_s.to_d if newline.size > summary["max_line_size"]
+      summary["max_line_size"] = newline.size if newline.size > summary["max_line_size"]
       fs.puts(newline)
     end
     fs.close
@@ -615,8 +635,7 @@ class EmissionAllocator
   end
 
   # write emission maps from the generated series.dmna
-  def write_maps(output_dir,output_series)
-
+  def write_maps(output_dir,output_series,verbose=nil)
     filenames = []
     total_episode = Hash.new(0)
 
@@ -628,14 +647,14 @@ class EmissionAllocator
         i = 4
         @polls.each do |gas|
           @src_map.each_data do |row,col|
-            @src_map.cells[row][col] = line[i].to_d
+            @src_map.cells[row][col] = line[i].to_f
             i+=1
           end
           name = File.join(output_dir,"#{gas}-#{line.first.tr(":","")}.asc")
           filenames << name
           @src_map.write_asc(name)
           sum = @src_map.sum_values
-          puts "#{line.first.tr(":","")}: #{gas} : #{sum.to_s('F')}"
+          puts "#{line.first.tr(":","")}: #{gas} : #{sum}" if verbose
           total_episode[gas] = total_episode[gas] + sum
         end
       end
@@ -643,7 +662,7 @@ class EmissionAllocator
     end
 
     total_episode.each do |gas,value|
-      puts "Total episode: #{gas} : #{value.to_s('F')}"
+      puts "Total episode: #{gas} : #{value}"
     end
 
   end
@@ -668,7 +687,7 @@ class EmissionAllocator
       @sectors.each_index do |sec_i|
         @polls.each_index do |p_i|
           value = annual_emissions[@sectors[sec_i]][@polls[p_i]]
-          value = value ? value.to_s.to_d.round(6).to_s('F') : 0
+          value = value ? value.to_s : 0
           f.puts("#{@sectors[sec_i]} #{@polls[p_i]} #{value}")
         end
       end
@@ -690,7 +709,7 @@ class EmissionAllocator
   def austal_param(key)
     value = nil
     File.foreach(@austal_txt) do |line|
-      array = line.split(" ")
+      array = line.split
       value = array.last.tr('"','') if array.first==key
       break if value
     end
@@ -712,9 +731,11 @@ class EmissionAllocator
   end
 
   # Returns the numbers of weeks in a month
-  def weeks_in_month(year, month)
-    days_in_month = (Date.new(year, 12, 31) << (12-month)).day # http://snippets.dzone.com/posts/show/4397
-    days_in_month.to_s.to_d / '7'.to_d
+  COMMON_YEAR_DAYS_IN_MONTH = [nil, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+  def weeks_in_month(month, year = Time.now.year)
+     return 29 if month == 2 && Date.gregorian_leap?(year)
+     COMMON_YEAR_DAYS_IN_MONTH[month].to_f / 7
   end
 
   # Returns the time serie from the series.dmna.src
@@ -722,13 +743,13 @@ class EmissionAllocator
     ts = []
     header = true
     File.foreach(template_series) do |line|
-     line = line.split
+     line = line.split(' ',6)
       ts << line[0..4] unless header || line.size < 4
       header = false if line.first=="*"
     end
     t0 = parse_time_stamp(ts[0].first)
     t1 = parse_time_stamp(ts[1].first)
-    [ts, (t1 - t0).to_s.to_d]
+    [ts, (t1 - t0).to_f]
   end
 
   #return an array containing the time fraction for each sector
@@ -736,11 +757,11 @@ class EmissionAllocator
     @sec_prf.collect do |prf|
         h_season = prf[:hourly].keys.include?(:annual) ? :annual : season(t.yday)
         d_season = prf[:daily].keys.include?(:annual)  ? :annual : season(t.yday)
-        monthly_fraction   = prf[:monthly][t.month-1].to_s.to_d
-        weeks_in_month     = weeks_in_month(t.year, t.month)
-        daily_fraction     = prf[:daily][d_season][t.wday].to_s.to_d / weeks_in_month
-        hourly_fraction    = prf[:hourly][h_season][t.hour-1].to_s.to_d
-        duration           = interval_duration / '3600'.to_d
+        monthly_fraction   = prf[:monthly][t.month-1]
+        weeks_in_month     = weeks_in_month(t.month, t.year)
+        daily_fraction     = prf[:daily][d_season][t.wday] / weeks_in_month
+        hourly_fraction    = prf[:hourly][h_season][t.hour-1]
+        duration           = interval_duration / 3600.0
         hourly_fraction * daily_fraction * monthly_fraction * duration
       end
   end
