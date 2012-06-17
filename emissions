@@ -617,7 +617,7 @@ class EmissionAllocator
               sec_i = @sectors.index(key.split('~').last)
               if sec_i
                 time  = time_frac[sec_i]
-                additional = time  * @extra_src_emi[i-milestone][key].to_f / 3600.0
+                additional = time  * @extra_src_emi[i-milestone][key].to_f / 3.6 * 1000 # conversion t -> g
                 strength += additional
               end
             end
